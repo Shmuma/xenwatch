@@ -4,6 +4,10 @@
 #include <linux/timer.h>
 #include <linux/sched.h>
 #include <linux/spinlock.h>
+#include <xen/xenbus.h>
+#include <xen/grant_table.h>
+#include <asm/xen/page.h>
+
 
 #include "xenwatch.h"
 
@@ -18,8 +22,13 @@ static void xw_update_page (unsigned long);
 /* Shared page with monitoring state */
 static struct page *shared_page;
 
+static int grant_ref;
+
 /* Module prefix. Used in log messages. */
 static const char *xw_prefix = "XenWatch";
+
+#define XENSTORE_PATH "xenwatch"
+
 
 /* Timer which fires every second and update data in shared page */
 DEFINE_TIMER (xw_update_timer, xw_update_page, 0, 0);
@@ -55,8 +64,6 @@ static void xw_update_page (unsigned long data)
 	xw->la_5 = avenrun[1];
 	xw->la_15 = avenrun[2];
 	spin_unlock (&xw->lock);
-
-	printk (KERN_INFO "xw_timer %lu, %lu, %lu\n", avenrun[0], avenrun[1], avenrun[2]);
 exit:
 	recharge_timer ();
 }
@@ -79,7 +86,19 @@ static int __init xw_init (void)
 	recharge_timer ();
 
 	/* publish page information via the XenStore */
+	xenbus_mkdir (XBT_NIL, XENSTORE_PATH, "");
+	grant_ref = gnttab_grant_foreign_access (0, virt_to_mfn (page_address (shared_page)), 0);
+	if (grant_ref <= 0)
+		goto fail;
+
+	xenbus_printf (XBT_NIL, XENSTORE_PATH, "page_ref", "%d", grant_ref);
         return 0;
+
+fail:
+	xenbus_rm (XBT_NIL, XENSTORE_PATH, "");
+	del_timer_sync (&xw_update_timer);
+	__free_page (shared_page);
+	return grant_ref;
 }
 
 
@@ -90,6 +109,8 @@ static void __exit xw_exit (void)
 	del_timer_sync (&xw_update_timer);
 
 	/* remove page information from XenStore */
+	xenbus_rm (XBT_NIL, XENSTORE_PATH, "");
+	gnttab_end_foreign_access_ref (grant_ref, 0);
 
 	/* free page */
 	__free_page (shared_page);
@@ -102,4 +123,3 @@ module_exit (xw_exit);
 MODULE_LICENSE ("GPL");
 MODULE_AUTHOR ("Max Lapan <max.lapan@gmail.com>");
 MODULE_DESCRIPTION ("Xen Watch DomU module");
-
