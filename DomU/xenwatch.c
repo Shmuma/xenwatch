@@ -6,7 +6,6 @@
 #include <linux/spinlock.h>
 #include <xen/xenbus.h>
 #include <xen/grant_table.h>
-#include <asm/xen/page.h>
 
 
 #include "xenwatch.h"
@@ -27,7 +26,7 @@ static int grant_ref;
 /* Module prefix. Used in log messages. */
 static const char *xw_prefix = "XenWatch";
 
-#define XENSTORE_PATH "xenwatch"
+#define XENSTORE_PATH "device/xenwatch"
 
 
 /* Timer which fires every second and update data in shared page */
@@ -72,6 +71,8 @@ exit:
 
 static int __init xw_init (void)
 {
+	int res;
+
 	/* allocate shared page */
 	shared_page = alloc_page (GFP_KERNEL || __GFP_ZERO);
 
@@ -86,12 +87,14 @@ static int __init xw_init (void)
 	recharge_timer ();
 
 	/* publish page information via the XenStore */
-	xenbus_mkdir (XBT_NIL, XENSTORE_PATH, "");
+//	res = xenbus_mkdir (XBT_NIL, XENSTORE_PATH, "");
+//	printk (KERN_INFO "mkdir ret %d\n", res);
 	grant_ref = gnttab_grant_foreign_access (0, virt_to_mfn (page_address (shared_page)), 0);
 	if (grant_ref <= 0)
 		goto fail;
 
-	xenbus_printf (XBT_NIL, XENSTORE_PATH, "page_ref", "%d", grant_ref);
+	res = xenbus_printf (XBT_NIL, XENSTORE_PATH, "page_ref", "%d", grant_ref);
+	printk (KERN_INFO "printf res %d\n", res);
         return 0;
 
 fail:
