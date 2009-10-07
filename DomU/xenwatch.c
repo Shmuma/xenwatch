@@ -87,8 +87,6 @@ static int __init xw_init (void)
 	recharge_timer ();
 
 	/* publish page information via the XenStore */
-//	res = xenbus_mkdir (XBT_NIL, XENSTORE_PATH, "");
-//	printk (KERN_INFO "mkdir ret %d\n", res);
 	grant_ref = gnttab_grant_foreign_access (0, virt_to_mfn (page_address (shared_page)), 0);
 	if (grant_ref <= 0)
 		goto fail;
