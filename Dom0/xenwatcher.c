@@ -14,12 +14,13 @@
 
 
 #define MAJOR_VERSION 0
-#define MINOR_VERSION 1
+#define MINOR_VERSION 2
 
 
 struct xw_domain_info {
 	struct list_head list;
 	int domain_id;
+	char *domain_name;
 	int page_ref;
 	struct proc_dir_entry *proc_dir;
 	struct page *page;
@@ -48,6 +49,9 @@ static spinlock_t domains_lock = SPIN_LOCK_UNLOCKED;
 static LIST_HEAD (domains);
 
 static const char* xw_name = "xenwatcher";
+static const char* xw_version = "xenwatch_version";
+
+static const char* xs_local_dir = "/local/domain";
 
 DEFINE_TIMER (xw_update_timer, xw_update_tf, 0, 0);
 
@@ -86,8 +90,6 @@ static int xw_read_la (char *page, char **start, off_t off, int count, int *eof,
 	struct xenwatch_state *xw_state;
 	int len;
 
-	printk (KERN_INFO "Show info about domain %u, page_ref %u\n", di->domain_id, di->page_ref);
-
 	/* Map shared page */
 	memset (&op, 0, sizeof (op));
 	op.host_addr = (unsigned long)page_address (di->page);
@@ -104,7 +106,7 @@ static int xw_read_la (char *page, char **start, off_t off, int count, int *eof,
 	spin_lock (&xw_state->lock);
 	len = sprintf (page, "%lu.%02lu %lu.%02lu %lu.%02lu\n",
 		       LOAD_INT (xw_state->la_1), LOAD_FRAC (xw_state->la_1),
-		       LOAD_INT (xw_state->la_5), LOAD_FRAC (xw_state->la_5), 
+		       LOAD_INT (xw_state->la_5), LOAD_FRAC (xw_state->la_5),
 		       LOAD_INT (xw_state->la_15), LOAD_FRAC (xw_state->la_15));
 	spin_unlock (&xw_state->lock);
 
@@ -155,7 +157,7 @@ static struct xw_domain_info* domain_lookup (unsigned int domid)
 
 static void xw_update_domains (struct work_struct *args)
 {
-	char **doms, *buf, *pref;
+	char **doms, *buf, *pref, *dom_name;
 	unsigned int c_doms, i, pref_len, domid, page_ref;
 	struct xw_domain_info *di;
 	LIST_HEAD (doms_private);
@@ -166,7 +168,7 @@ static void xw_update_domains (struct work_struct *args)
 		return;
 
 	/* iterate over all domains in XS */
-	doms = xenbus_directory (XBT_NIL, "/local/domain", "", &c_doms);
+	doms = xenbus_directory (XBT_NIL, xs_local_dir, "", &c_doms);
 	if (IS_ERR (doms))
 		goto error;
 
@@ -174,8 +176,15 @@ static void xw_update_domains (struct work_struct *args)
 		if (sscanf (doms[i], "%u", &domid) <= 0)
 			continue;
 
+		sprintf (buf, "%d/name", domid);
+		dom_name = xenbus_read (XBT_NIL, xs_local_dir, buf, &pref_len);
+		if (IS_ERR (dom_name)) {
+			printk (KERN_WARNING "Error reading name of domain %d\n", domid);
+			continue;
+		}
+
 		sprintf (buf, "%d/device/xenwatch/page_ref", domid);
-		pref = xenbus_read (XBT_NIL, "/local/domain", buf, &pref_len);
+		pref = xenbus_read (XBT_NIL, xs_local_dir, buf, &pref_len);
 		if (!IS_ERR (pref)) {
 			if (sscanf (pref, "%d", &page_ref)) {
 				spin_lock (&domains_lock);
@@ -227,9 +236,8 @@ error:
 static struct xw_domain_info* create_di (unsigned int domid, unsigned int page_ref)
 {
 	struct xw_domain_info *di;
-	char id_buf[16];
-
-	sprintf (id_buf, "%u", domid);
+	char buf[128];
+	int len;
 
 	/* new domain */
 	di = kmalloc (sizeof (struct xw_domain_info), GFP_KERNEL);
@@ -238,8 +246,17 @@ static struct xw_domain_info* create_di (unsigned int domid, unsigned int page_r
 
 	di->domain_id = domid;
 	di->page_ref = page_ref;
+
+	/* get name of domain */
+	sprintf (buf, "%d/name", domid);
+	di->domain_name = xenbus_read (XBT_NIL, xs_local_dir, buf, &len);
+	if (IS_ERR (di->domain_name)) {
+		printk (KERN_WARNING "Error reading name of domain %d\n", domid);
+		goto error2;
+	}
+
 	INIT_LIST_HEAD (&di->list);
-	di->proc_dir = proc_mkdir (id_buf, xw_dir);
+	di->proc_dir = proc_mkdir (di->domain_name, xw_dir);
 	create_proc_read_entry ("la", 0, di->proc_dir, xw_read_la, di);
 	di->page = alloc_page (GFP_KERNEL);
 	if (!di->page)
@@ -248,7 +265,9 @@ static struct xw_domain_info* create_di (unsigned int domid, unsigned int page_r
 
 error:
 	remove_proc_entry ("la", di->proc_dir);
-	remove_proc_entry (id_buf, xw_dir);
+	remove_proc_entry (di->domain_name, xw_dir);
+	kfree (di->domain_name);
+error2:
 	kfree (di);
 	return NULL;
 }
@@ -259,6 +278,7 @@ static void destroy_di (struct xw_domain_info *di)
 	remove_proc_entry ("la", di->proc_dir);
 	remove_proc_entry (di->proc_dir->name, di->proc_dir->parent);
 	__free_page (di->page);
+	kfree (di->domain_name);
 	kfree (di);
 }
 
@@ -272,9 +292,11 @@ static int __init xw_init (void)
 		return -EINVAL;
 	}
 
-	create_proc_read_entry ("version", 0, xw_dir, xw_read_version, NULL);
+	create_proc_read_entry (xw_version, 0, xw_dir, xw_read_version, NULL);
 
 	recharge_timer ();
+
+	printk (KERN_INFO "XenWatcher %d.%d initialized\n", MAJOR_VERSION, MINOR_VERSION);
 
         return 0;
 }
@@ -289,7 +311,7 @@ static void __exit xw_exit (void)
 	del_timer_sync (&xw_update_timer);
 	flush_scheduled_work ();
 
-	remove_proc_entry ("version", xw_dir);
+	remove_proc_entry (xw_version, xw_dir);
 
 	/* remove all domain entries */
 	list_for_each_safe (p, n, &domains) {
