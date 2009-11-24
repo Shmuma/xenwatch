@@ -287,6 +287,7 @@ static void __exit xw_exit (void)
 
 	/* destroy timer */
 	del_timer_sync (&xw_update_timer);
+	flush_scheduled_work ();
 
 	remove_proc_entry ("version", xw_dir);
 
