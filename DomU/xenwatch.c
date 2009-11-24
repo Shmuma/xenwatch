@@ -91,8 +91,7 @@ static int __init xw_init (void)
 	if (grant_ref <= 0)
 		goto fail;
 
-	res = xenbus_printf (XBT_NIL, XENSTORE_PATH, "page_ref", "%d", grant_ref);
-	printk (KERN_INFO "printf res %d\n", res);
+	xenbus_printf (XBT_NIL, XENSTORE_PATH, "page_ref", "%d", grant_ref);
         return 0;
 
 fail:
