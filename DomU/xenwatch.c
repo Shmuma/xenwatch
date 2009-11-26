@@ -4,10 +4,11 @@
 #include <linux/mm.h>
 #include <linux/timer.h>
 #include <linux/sched.h>
-#include <linux/spinlock.h>
+#include <linux/netdevice.h>
+#include <linux/if_arp.h>
+
 #include <xen/xenbus.h>
 #include <xen/grant_table.h>
-
 
 #include "xenwatch.h"
 
@@ -54,6 +55,10 @@ inline void recharge_timer (void)
 static void xw_update_page (unsigned long data)
 {
 	struct xenwatch_state *xw = page_address (shared_page);
+	struct net_device *net_dev;
+	struct xenwatch_state_network *xw_net = (struct xenwatch_state_network*)((char*)xw + sizeof (struct xenwatch_state));
+	struct net_device_stats *stats;
+	u8 index;
 
 	if (!xw)
 		goto exit;
@@ -62,6 +67,27 @@ static void xw_update_page (unsigned long data)
 	xw->la_1 = avenrun[0];
 	xw->la_5 = avenrun[1];
 	xw->la_15 = avenrun[2];
+
+	/* iterate over network devices */
+	index = 0;
+	for_each_netdev (&init_net, net_dev) {
+		if (net_dev->type == ARPHRD_ETHER) {
+			stats = net_dev->get_stats (net_dev);
+			xw_net[index].rx_bytes = stats->rx_bytes;
+			xw_net[index].tx_bytes = stats->tx_bytes;
+			xw_net[index].rx_packets = stats->rx_packets;
+			xw_net[index].tx_packets = stats->tx_packets;
+			xw_net[index].dropped_packets = stats->rx_dropped + stats->tx_dropped;
+			xw_net[index].error_packets = stats->rx_errors + stats->tx_errors;
+			printk (KERN_INFO "eth%d,%llu,%llu,%llu,%llu,%llu,%llu\n", index,
+				xw_net[index].rx_bytes, xw_net[index].tx_bytes,
+				xw_net[index].rx_packets, xw_net[index].tx_packets,
+				xw_net[index].dropped_packets, xw_net[index].error_packets);
+			index++;
+		}
+	}
+	xw->network_interfaces = index;
+	xw->len = sizeof (struct xenwatch_state) + index * sizeof (struct xenwatch_state_network);
 	xw_page_unlock (xw);
 exit:
 	recharge_timer ();

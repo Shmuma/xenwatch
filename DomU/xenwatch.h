@@ -14,12 +14,12 @@ struct xenwatch_state {
 	u32 len;			/* Length of structure */
 	atomic_t lock;			/* Page protection (1 if used, 0 if free) */
 	u64 la_1, la_5, la_15;		/* Load average fixed-point values */
-	u8 network_interfaces;		/* count of network interfaces in  */
+	u8 network_interfaces;		/* count of network interfaces */
 } __attribute__ ((packed));
 
 
 struct xenwatch_state_network {
-	u64 input_bytes, output_bytes, input_packets, output_packets, dropped_packets, error_packets;
+	u64 rx_bytes, tx_bytes, rx_packets, tx_packets, dropped_packets, error_packets;
 } __attribute__ ((packed));
 
 

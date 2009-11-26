@@ -24,6 +24,8 @@ struct xw_domain_info {
 	int page_ref;
 	struct proc_dir_entry *proc_dir;
 	struct page *page;
+	grant_handle_t grant_handle; /* valid only when page mapped */
+	uint64_t page_bus_addr;
 };
 
 
@@ -41,6 +43,10 @@ static struct xw_domain_info* create_di (unsigned int domid, unsigned int page_r
 static void destroy_di (struct xw_domain_info *di);
 
 static int xw_read_la (char *page, char **start, off_t off, int count, int *eof, void *data);
+static int xw_read_network (char *page, char **start, off_t off, int count, int *eof, void *data);
+
+static struct xenwatch_state* map_state (struct xw_domain_info *di);
+static int unmap_state (struct xw_domain_info *di);
 
 
 static struct proc_dir_entry *xw_dir;
@@ -56,6 +62,49 @@ static const char* xs_local_dir = "/local/domain";
 DEFINE_TIMER (xw_update_timer, xw_update_tf, 0, 0);
 
 DECLARE_WORK (xw_update_worker, &xw_update_domains);
+
+
+
+static struct xenwatch_state* map_state (struct xw_domain_info *di)
+{
+	struct gnttab_map_grant_ref op;
+
+	/* Map shared page */
+	memset (&op, 0, sizeof (op));
+	op.host_addr = (unsigned long)page_address (di->page);
+	op.flags = GNTMAP_host_map;
+	op.ref = di->page_ref;
+	op.dom = di->domain_id;
+
+	if (HYPERVISOR_grant_table_op (GNTTABOP_map_grant_ref, &op, 1)) {
+		printk (KERN_ERR "%s: failed to map shared page from domain %u, ref %u", xw_name, di->domain_id, di->page_ref);
+		return NULL;
+	}
+
+	di->grant_handle = op.handle;
+	di->page_bus_addr = op.dev_bus_addr;
+
+	return (struct xenwatch_state *)page_address (di->page);
+}
+
+
+static int unmap_state (struct xw_domain_info *di)
+{
+	struct gnttab_unmap_grant_ref u_op;
+
+	/* unmap page */
+	memset (&u_op, 0, sizeof (u_op));
+	u_op.host_addr = (unsigned long)page_address (di->page);
+	u_op.dev_bus_addr = di->page_bus_addr;
+	u_op.handle = di->grant_handle;
+
+	if (HYPERVISOR_grant_table_op (GNTTABOP_unmap_grant_ref, &u_op, 1)) {
+		printk (KERN_ERR "%s: failed to unmap shared page for domain %u, ref %u\n", xw_name, di->domain_id, di->page_ref);
+		return 0;
+	}
+
+	return 1;
+}
 
 
 
@@ -85,39 +134,43 @@ static int xw_read_version (char *page, char **start, off_t off, int count, int 
 static int xw_read_la (char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	struct xw_domain_info *di = (struct xw_domain_info *)data;
-	struct gnttab_map_grant_ref op;
-	struct gnttab_unmap_grant_ref u_op;
 	struct xenwatch_state *xw_state;
 	int len;
 
-	/* Map shared page */
-	memset (&op, 0, sizeof (op));
-	op.host_addr = (unsigned long)page_address (di->page);
-	op.flags = GNTMAP_host_map;
-	op.ref = di->page_ref;
-	op.dom = di->domain_id;
-
-	if (HYPERVISOR_grant_table_op (GNTTABOP_map_grant_ref, &op, 1)) {
-		printk (KERN_ERR "%s: failed to map shared page from domain %u, ref %u", xw_name, di->domain_id, di->page_ref);
-		return 0;
-	}
-
-	xw_state = page_address (di->page);
+	xw_state = map_state (di);
 	xw_page_lock (xw_state);
 	len = sprintf (page, "%llu.%02llu %llu.%02llu %llu.%02llu\n",
 		       LOAD_INT (xw_state->la_1), LOAD_FRAC (xw_state->la_1),
 		       LOAD_INT (xw_state->la_5), LOAD_FRAC (xw_state->la_5),
 		       LOAD_INT (xw_state->la_15), LOAD_FRAC (xw_state->la_15));
 	xw_page_unlock (xw_state);
+	unmap_state (di);
 
-	/* unmap page */
-	memset (&u_op, 0, sizeof (op));
-	u_op.host_addr = (unsigned long)page_address (di->page);
-	u_op.dev_bus_addr = op.dev_bus_addr;
-	u_op.handle = op.handle;
+	return proc_calc_metrics (page, start, off, count, eof, len);
+}
 
-	if (HYPERVISOR_grant_table_op (GNTTABOP_unmap_grant_ref, &u_op, 1))
-		printk (KERN_ERR "%s: failed to unmap shared page for domain %u, ref %u\n", xw_name, di->domain_id, di->page_ref);
+
+static int xw_read_network (char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	struct xw_domain_info *di = (struct xw_domain_info *)data;
+	struct xenwatch_state *xw_state;
+	struct xenwatch_state_network *xw_net;
+	int len = 0, i;
+
+	xw_state = map_state (di);
+	xw_page_lock (xw_state);
+
+	len += sprintf (page, "interface,rx_bytes,tx_bytes,rx_packets,tx_packets,dropped,error\n");
+	xw_net = (struct xenwatch_state_network*)((char*)xw_state + sizeof (*xw_state));
+
+	for (i = 0; i < xw_state->network_interfaces; i++)
+		len += sprintf (page+len, "eth%d,%llu,%llu,%llu,%llu,%llu,%llu\n", i,
+				xw_net->rx_bytes, xw_net->tx_bytes,
+				xw_net->rx_packets, xw_net->tx_packets,
+				xw_net->dropped_packets, xw_net->error_packets);
+
+	xw_page_unlock (xw_state);
+	unmap_state (di);
 
 	return proc_calc_metrics (page, start, off, count, eof, len);
 }
@@ -258,6 +311,7 @@ static struct xw_domain_info* create_di (unsigned int domid, unsigned int page_r
 	INIT_LIST_HEAD (&di->list);
 	di->proc_dir = proc_mkdir (di->domain_name, xw_dir);
 	create_proc_read_entry ("la", 0, di->proc_dir, xw_read_la, di);
+	create_proc_read_entry ("network", 0, di->proc_dir, xw_read_network, di);
 	di->page = alloc_page (GFP_KERNEL);
 	if (!di->page)
 		goto error;
@@ -276,6 +330,7 @@ error2:
 static void destroy_di (struct xw_domain_info *di)
 {
 	remove_proc_entry ("la", di->proc_dir);
+	remove_proc_entry ("network", di->proc_dir);
 	remove_proc_entry (di->proc_dir->name, di->proc_dir->parent);
 	__free_page (di->page);
 	kfree (di->domain_name);
