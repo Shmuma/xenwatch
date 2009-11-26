@@ -1,3 +1,4 @@
+#include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mm.h>
@@ -38,7 +39,7 @@ static void init_page (void)
 	struct xenwatch_state *xw = page_address (shared_page);
 
 	xw->len = sizeof (struct xenwatch_state);
-	xw->lock = SPIN_LOCK_UNLOCKED;
+	atomic_set (&xw->lock, 0);
 }
 
 
@@ -49,7 +50,6 @@ inline void recharge_timer (void)
 }
 
 
-
 /* Timer routine. Gather monitoring data and update it in shared page. */
 static void xw_update_page (unsigned long data)
 {
@@ -58,11 +58,11 @@ static void xw_update_page (unsigned long data)
 	if (!xw)
 		goto exit;
 
-	spin_lock (&xw->lock);
+	xw_page_lock (xw);
 	xw->la_1 = avenrun[0];
 	xw->la_5 = avenrun[1];
 	xw->la_15 = avenrun[2];
-	spin_unlock (&xw->lock);
+	xw_page_unlock (xw);
 exit:
 	recharge_timer ();
 }
@@ -71,8 +71,6 @@ exit:
 
 static int __init xw_init (void)
 {
-	int res;
-
 	/* allocate shared page */
 	shared_page = alloc_page (GFP_KERNEL || __GFP_ZERO);
 

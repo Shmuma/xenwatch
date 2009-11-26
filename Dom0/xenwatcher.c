@@ -103,12 +103,12 @@ static int xw_read_la (char *page, char **start, off_t off, int count, int *eof,
 	}
 
 	xw_state = page_address (di->page);
-	spin_lock (&xw_state->lock);
-	len = sprintf (page, "%lu.%02lu %lu.%02lu %lu.%02lu\n",
+	xw_page_lock (xw_state);
+	len = sprintf (page, "%llu.%02llu %llu.%02llu %llu.%02llu\n",
 		       LOAD_INT (xw_state->la_1), LOAD_FRAC (xw_state->la_1),
 		       LOAD_INT (xw_state->la_5), LOAD_FRAC (xw_state->la_5),
 		       LOAD_INT (xw_state->la_15), LOAD_FRAC (xw_state->la_15));
-	spin_unlock (&xw_state->lock);
+	xw_page_unlock (xw_state);
 
 	/* unmap page */
 	memset (&u_op, 0, sizeof (op));
