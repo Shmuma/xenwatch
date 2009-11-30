@@ -79,10 +79,6 @@ static void xw_update_page (unsigned long data)
 			xw_net[index].tx_packets = stats->tx_packets;
 			xw_net[index].dropped_packets = stats->rx_dropped + stats->tx_dropped;
 			xw_net[index].error_packets = stats->rx_errors + stats->tx_errors;
-			printk (KERN_INFO "eth%d,%llu,%llu,%llu,%llu,%llu,%llu\n", index,
-				xw_net[index].rx_bytes, xw_net[index].tx_bytes,
-				xw_net[index].rx_packets, xw_net[index].tx_packets,
-				xw_net[index].dropped_packets, xw_net[index].error_packets);
 			index++;
 		}
 	}
