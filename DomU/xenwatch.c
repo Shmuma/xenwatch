@@ -6,6 +6,8 @@
 #include <linux/sched.h>
 #include <linux/netdevice.h>
 #include <linux/if_arp.h>
+#include <linux/kernel_stat.h>
+
 
 #include <xen/xenbus.h>
 #include <xen/grant_table.h>
@@ -59,6 +61,8 @@ static void xw_update_page (unsigned long data)
 	struct xenwatch_state_network *xw_net = (struct xenwatch_state_network*)((char*)xw + sizeof (struct xenwatch_state));
 	struct net_device_stats *stats;
 	u8 index;
+	int i;
+	cputime64_t user, system, wait, idle;
 
 	if (!xw)
 		goto exit;
@@ -83,6 +87,29 @@ static void xw_update_page (unsigned long data)
 		}
 	}
 	xw->network_interfaces = index;
+
+	/* CPU time */
+	user = system = wait = idle = cputime64_zero;
+	for_each_possible_cpu (i) {
+		user = cputime64_add (user, kstat_cpu (i).cpustat.user);
+		system = cputime64_add (system, kstat_cpu (i).cpustat.system);
+		idle = cputime64_add (idle, kstat_cpu (i).cpustat.idle);
+		wait = cputime64_add (wait, kstat_cpu (i).cpustat.iowait);
+	}
+
+	/* Save previous values */
+	xw->p_user = xw->user;
+	xw->p_system = xw->system;
+	xw->p_wait = xw->wait;
+	xw->p_idle = xw->idle;
+
+	/* Calculate used times in miliseconds */
+	xw->user = cputime_to_msecs (user);
+	xw->system = cputime_to_msecs (system);
+	xw->wait = cputime_to_msecs (wait);
+	xw->idle = cputime_to_msecs (idle);
+
+	/* total length of data */
 	xw->len = sizeof (struct xenwatch_state) + index * sizeof (struct xenwatch_state_network);
 	xw_page_unlock (xw);
 exit:

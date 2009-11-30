@@ -176,6 +176,28 @@ static int xw_read_network (char *page, char **start, off_t off, int count, int 
 }
 
 
+static int xw_read_cpu (char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	struct xw_domain_info *di = (struct xw_domain_info *)data;
+	struct xenwatch_state *xw_state;
+	int len = 0;
+
+	xw_state = map_state (di);
+	xw_page_lock (xw_state);
+
+	len += sprintf (page, "user,prev_user,system,prev_system,wait,prev_wait,idle,prev_idle\n%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
+			xw_state->user, xw_state->p_user,
+			xw_state->system, xw_state->p_system,
+			xw_state->wait, xw_state->p_wait,
+			xw_state->idle, xw_state->p_idle);
+
+	xw_page_unlock (xw_state);
+	unmap_state (di);
+
+	return proc_calc_metrics (page, start, off, count, eof, len);
+}
+
+
 
 /* Schedules next timer callback */
 inline void recharge_timer (void)
@@ -312,6 +334,7 @@ static struct xw_domain_info* create_di (unsigned int domid, unsigned int page_r
 	di->proc_dir = proc_mkdir (di->domain_name, xw_dir);
 	create_proc_read_entry ("la", 0, di->proc_dir, xw_read_la, di);
 	create_proc_read_entry ("network", 0, di->proc_dir, xw_read_network, di);
+	create_proc_read_entry ("cpu", 0, di->proc_dir, xw_read_cpu, di);
 	di->page = alloc_page (GFP_KERNEL);
 	if (!di->page)
 		goto error;
@@ -320,6 +343,7 @@ static struct xw_domain_info* create_di (unsigned int domid, unsigned int page_r
 error:
 	remove_proc_entry ("la", di->proc_dir);
 	remove_proc_entry ("network", di->proc_dir);
+	remove_proc_entry ("cpu", di->proc_dir);
 	remove_proc_entry (di->domain_name, xw_dir);
 	kfree (di->domain_name);
 error2:
@@ -332,6 +356,7 @@ static void destroy_di (struct xw_domain_info *di)
 {
 	remove_proc_entry ("la", di->proc_dir);
 	remove_proc_entry ("network", di->proc_dir);
+	remove_proc_entry ("cpu", di->proc_dir);
 	remove_proc_entry (di->proc_dir->name, di->proc_dir->parent);
 //	__free_page (di->page);
 	kfree (di->domain_name);
