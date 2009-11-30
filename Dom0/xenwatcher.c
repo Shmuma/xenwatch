@@ -319,6 +319,7 @@ static struct xw_domain_info* create_di (unsigned int domid, unsigned int page_r
 
 error:
 	remove_proc_entry ("la", di->proc_dir);
+	remove_proc_entry ("network", di->proc_dir);
 	remove_proc_entry (di->domain_name, xw_dir);
 	kfree (di->domain_name);
 error2:
@@ -332,7 +333,7 @@ static void destroy_di (struct xw_domain_info *di)
 	remove_proc_entry ("la", di->proc_dir);
 	remove_proc_entry ("network", di->proc_dir);
 	remove_proc_entry (di->proc_dir->name, di->proc_dir->parent);
-	__free_page (di->page);
+//	__free_page (di->page);
 	kfree (di->domain_name);
 	kfree (di);
 }
@@ -362,11 +363,17 @@ static void __exit xw_exit (void)
 	struct list_head *p, *n;
 	struct xw_domain_info *di;
 
+	printk (KERN_INFO "XenWatcher unloading\n");
+
 	/* destroy timer */
 	del_timer_sync (&xw_update_timer);
 	flush_scheduled_work ();
 
+	printk (KERN_INFO "Work synched\n");
+
 	remove_proc_entry (xw_version, xw_dir);
+
+	printk (KERN_INFO "Proc removed\n");
 
 	/* remove all domain entries */
 	list_for_each_safe (p, n, &domains) {
@@ -375,7 +382,12 @@ static void __exit xw_exit (void)
 		destroy_di (di);
 	}
 
+	printk (KERN_INFO "DI removed\n");
+
 	remove_proc_entry (xw_name, NULL);
+
+	printk (KERN_INFO "Unload finished\n");
+
 }
 
 
