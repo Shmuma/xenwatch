@@ -35,6 +35,9 @@ struct xw_domain_info {
 #define LOAD_INT(x) ((x) >> FSHIFT)
 #define LOAD_FRAC(x) LOAD_INT(((x) & (FIXED_1-1)) * 100)
 
+#define PERCENT_INT(x) ((u32)((x)/100))
+#define PERCENT_FRAC(x) ((u32)((x) % 100))
+
 
 static void xw_update_tf (unsigned long);			/* timer routine */
 static void xw_update_domains (struct work_struct *);		/* workqueue routine */
@@ -185,11 +188,11 @@ static int xw_read_cpu (char *page, char **start, off_t off, int count, int *eof
 	xw_state = map_state (di);
 	xw_page_lock (xw_state);
 
-	len += sprintf (page, "user,prev_user,system,prev_system,wait,prev_wait,idle,prev_idle\n%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
-			xw_state->user, xw_state->p_user,
-			xw_state->system, xw_state->p_system,
-			xw_state->wait, xw_state->p_wait,
-			xw_state->idle, xw_state->p_idle);
+	len += sprintf (page, "user,system,wait,idle\n%u.%02u,%u.%02u,%u.%02u,%u.%02u\n",
+			PERCENT_INT(xw_state->p_user),   PERCENT_FRAC(xw_state->p_user),
+			PERCENT_INT(xw_state->p_system), PERCENT_FRAC(xw_state->p_system),
+			PERCENT_INT(xw_state->p_wait),   PERCENT_FRAC(xw_state->p_wait),
+			PERCENT_INT(xw_state->p_idle),   PERCENT_FRAC(xw_state->p_idle));
 
 	xw_page_unlock (xw_state);
 	unmap_state (di);

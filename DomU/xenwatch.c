@@ -7,6 +7,7 @@
 #include <linux/netdevice.h>
 #include <linux/if_arp.h>
 #include <linux/kernel_stat.h>
+#include <linux/jiffies.h>
 
 
 #include <xen/xenbus.h>
@@ -53,6 +54,13 @@ inline void recharge_timer (void)
 }
 
 
+inline u32 calc_percent (u32 old, u32 new, u32 ts_delta)
+{
+	u32 tmp = (new - old) * 10000 / ts_delta;
+	return (tmp > 10000) ? 10000 : tmp;
+}
+
+
 /* Timer routine. Gather monitoring data and update it in shared page. */
 static void xw_update_page (unsigned long data)
 {
@@ -61,6 +69,7 @@ static void xw_update_page (unsigned long data)
 	struct xenwatch_state_network *xw_net = (struct xenwatch_state_network*)((char*)xw + sizeof (struct xenwatch_state));
 	struct net_device_stats *stats;
 	u8 index;
+	u32 old_ts;
 	int i;
 	cputime64_t user, system, wait, idle;
 
@@ -68,8 +77,11 @@ static void xw_update_page (unsigned long data)
 		goto exit;
 
 	xw_page_lock (xw);
-	xw->la_1 = avenrun[0];
-	xw->la_5 = avenrun[1];
+	old_ts = xw->ts_ms;
+
+	xw->ts_ms = jiffies_to_msecs (jiffies);
+	xw->la_1  = avenrun[0];
+	xw->la_5  = avenrun[1];
 	xw->la_15 = avenrun[2];
 
 	/* iterate over network devices */
@@ -97,11 +109,15 @@ static void xw_update_page (unsigned long data)
 		wait = cputime64_add (wait, kstat_cpu (i).cpustat.iowait);
 	}
 
-	/* Save previous values */
-	xw->p_user = xw->user;
-	xw->p_system = xw->system;
-	xw->p_wait = xw->wait;
-	xw->p_idle = xw->idle;
+	if (old_ts && xw->ts_ms != old_ts) {
+		u32 delta = xw->ts_ms - old_ts;
+
+		/* we have previous values, calculate percents */
+		xw->p_user = calc_percent (xw->user, cputime_to_msecs (user), delta);
+		xw->p_system = calc_percent (xw->system, cputime_to_msecs (system), delta);
+		xw->p_wait = calc_percent (xw->wait, cputime_to_msecs (wait), delta);
+		xw->p_idle = calc_percent (xw->idle, cputime_to_msecs (idle), delta);
+	}
 
 	/* Calculate used times in miliseconds */
 	xw->user = cputime_to_msecs (user);
@@ -115,7 +131,6 @@ static void xw_update_page (unsigned long data)
 exit:
 	recharge_timer ();
 }
-
 
 
 static int __init xw_init (void)
@@ -147,7 +162,6 @@ fail:
 	__free_page (shared_page);
 	return grant_ref;
 }
-
 
 
 static void __exit xw_exit (void)
