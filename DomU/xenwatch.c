@@ -8,7 +8,10 @@
 #include <linux/if_arp.h>
 #include <linux/kernel_stat.h>
 #include <linux/jiffies.h>
+#include <linux/swap.h>
+#include <linux/fs.h>
 
+#include <asm/page.h>
 
 #include <xen/xenbus.h>
 #include <xen/grant_table.h>
@@ -32,6 +35,8 @@ static int grant_ref;
 static const char *xw_prefix = "XenWatch";
 
 #define XENSTORE_PATH "device/xenwatch"
+
+#define PAGES2BYTES(x) ((u64)(x) << PAGE_SHIFT)
 
 
 /* Timer which fires every second and update data in shared page */
@@ -72,6 +77,7 @@ static void xw_update_page (unsigned long data)
 	u32 old_ts;
 	int i;
 	cputime64_t user, system, wait, idle;
+	struct sysinfo si;
 
 	if (!xw)
 		goto exit;
@@ -125,8 +131,17 @@ static void xw_update_page (unsigned long data)
 	xw->wait = cputime_to_msecs (wait);
 	xw->idle = cputime_to_msecs (idle);
 
+	/* memory */
+	si_meminfo (&si);
+
+	xw->mem_total   = PAGES2BYTES (si.totalram);
+	xw->mem_free    = PAGES2BYTES (si.freeram);
+	xw->mem_buffers = PAGES2BYTES (si.bufferram);
+	xw->mem_cached  = PAGES2BYTES (global_page_state(NR_FILE_PAGES) - si.bufferram);
+
 	/* total length of data */
 	xw->len = sizeof (struct xenwatch_state) + index * sizeof (struct xenwatch_state_network);
+	xw->counter++;
 	xw_page_unlock (xw);
 exit:
 	recharge_timer ();
