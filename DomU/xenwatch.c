@@ -10,6 +10,11 @@
 #include <linux/jiffies.h>
 #include <linux/swap.h>
 #include <linux/fs.h>
+#include <linux/namei.h>
+#include <linux/statfs.h>
+#include <linux/genhd.h>
+#include <linux/magic.h>
+
 
 #include <asm/page.h>
 
@@ -17,6 +22,11 @@
 #include <xen/grant_table.h>
 
 #include "xenwatch.h"
+
+
+#ifndef TMPFS_MAGIC
+#define TMPFS_MAGIC             0x01021994
+#endif
 
 
 /* Update shared page contents every second */
@@ -63,6 +73,26 @@ inline u32 calc_percent (u32 old, u32 new, u32 ts_delta)
 {
 	u32 tmp = (new - old) * 10000 / ts_delta;
 	return (tmp > 10000) ? 10000 : tmp;
+}
+
+
+static void gather_root_data (struct xenwatch_state *xw)
+{
+	struct nameidata nd;
+	struct kstatfs kstat;
+
+	if (path_lookup ("/", 0, &nd))
+		printk (KERN_INFO "xenwatch: Root lookup error\n");
+	else {
+		nd.path.dentry->d_sb->s_op->statfs (nd.path.dentry, &kstat);
+
+		xw->root_size = kstat.f_blocks * kstat.f_bsize;
+		xw->root_free = kstat.f_bfree * kstat.f_bsize;
+		xw->root_inodes = kstat.f_files;
+		xw->root_inodes_free = kstat.f_ffree;
+
+		path_put (&nd.path);
+	}
 }
 
 
@@ -138,6 +168,8 @@ static void xw_update_page (unsigned long data)
 	xw->mem_free    = PAGES2BYTES (si.freeram);
 	xw->mem_buffers = PAGES2BYTES (si.bufferram);
 	xw->mem_cached  = PAGES2BYTES (global_page_state(NR_FILE_PAGES) - si.bufferram);
+
+	gather_root_data (xw);
 
 	/* total length of data */
 	xw->len = sizeof (struct xenwatch_state) + index * sizeof (struct xenwatch_state_network);

@@ -7,7 +7,7 @@
  * The layout of data in shared info page is follows:
  * 1. struct xenwatch_state -- contains generic information about state and amount of variable-size objects
  * 2. array of struct xenwatch_state_net -- information about network interfaces
- * 3. array of struct xenwatch_state_disk -- information about disks
+ * 3. array of struct xenwatch_state_block -- information about disks
  */
 
 struct xenwatch_state {
@@ -21,15 +21,13 @@ struct xenwatch_state {
 	u32 p_user, p_system, p_wait, p_idle;	/* CPU usage in percents*100			*/
 	u64 mem_total, mem_free;		/* Memory size in bytes				*/
 	u64 mem_buffers, mem_cached;
+	u64 root_size, root_free, root_inodes, root_inodes_free;
 } __attribute__ ((packed));
-
 
 
 struct xenwatch_state_network {
 	u64 rx_bytes, tx_bytes, rx_packets, tx_packets, dropped_packets, error_packets;
 } __attribute__ ((packed));
-
-
 
 
 inline void xw_page_lock (struct xenwatch_state *xw)
