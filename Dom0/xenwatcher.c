@@ -14,7 +14,7 @@
 
 
 #define MAJOR_VERSION 0
-#define MINOR_VERSION 2
+#define MINOR_VERSION 3
 
 
 struct xw_domain_info {
@@ -145,7 +145,7 @@ static int xw_read_la (char *page, char **start, off_t off, int count, int *eof,
 
 	xw_state = map_state (di);
 	xw_page_lock (xw_state);
-	len = sprintf (page, "%llu.%02llu %llu.%02llu %llu.%02llu\n",
+	len = sprintf (page, "la1 la5 la15\n%llu.%02llu %llu.%02llu %llu.%02llu\n",
 		       LOAD_INT (xw_state->la_1), LOAD_FRAC (xw_state->la_1),
 		       LOAD_INT (xw_state->la_5), LOAD_FRAC (xw_state->la_5),
 		       LOAD_INT (xw_state->la_15), LOAD_FRAC (xw_state->la_15));
@@ -166,11 +166,11 @@ static int xw_read_network (char *page, char **start, off_t off, int count, int 
 	xw_state = map_state (di);
 	xw_page_lock (xw_state);
 
-	len += sprintf (page, "interface,rx_bytes,tx_bytes,rx_packets,tx_packets,dropped,error\n");
+	len += sprintf (page, "interface rx_bytes tx_bytes rx_packets tx_packets dropped error\n");
 	xw_net = (struct xenwatch_state_network*)((char*)xw_state + sizeof (*xw_state));
 
 	for (i = 0; i < xw_state->network_interfaces; i++)
-		len += sprintf (page+len, "eth%d,%llu,%llu,%llu,%llu,%llu,%llu\n", i,
+		len += sprintf (page+len, "eth%d %llu %llu %llu %llu %llu %llu\n", i,
 				xw_net->rx_bytes, xw_net->tx_bytes,
 				xw_net->rx_packets, xw_net->tx_packets,
 				xw_net->dropped_packets, xw_net->error_packets);
@@ -191,7 +191,7 @@ static int xw_read_cpu (char *page, char **start, off_t off, int count, int *eof
 	xw_state = map_state (di);
 	xw_page_lock (xw_state);
 
-	len += sprintf (page, "user,system,wait,idle\n%u.%02u,%u.%02u,%u.%02u,%u.%02u\n",
+	len += sprintf (page, "user system wait idle\n%u.%02u %u.%02u %u.%02u %u.%02u\n",
 			PERCENT_INT(xw_state->p_user),   PERCENT_FRAC(xw_state->p_user),
 			PERCENT_INT(xw_state->p_system), PERCENT_FRAC(xw_state->p_system),
 			PERCENT_INT(xw_state->p_wait),   PERCENT_FRAC(xw_state->p_wait),
@@ -213,7 +213,7 @@ static int xw_read_mem (char *page, char **start, off_t off, int count, int *eof
 	xw_state = map_state (di);
 	xw_page_lock (xw_state);
 
-	len += sprintf (page, "total,free,buffers,cached\n%llu,%llu,%llu,%llu\n",
+	len += sprintf (page, "total free buffers cached\n%llu %llu %llu %llu\n",
 			xw_state->mem_total, xw_state->mem_free,
 			xw_state->mem_buffers, xw_state->mem_cached);
 
@@ -234,7 +234,7 @@ static int xw_read_df (char *page, char **start, off_t off, int count, int *eof,
 	xw_state = map_state (di);
 	xw_page_lock (xw_state);
 
-	len += sprintf (page, "mount,size,free,inodes,inodes_free\n/,%llu,%llu,%llu,%llu\n",
+	len += sprintf (page, "mount size free inodes inodes_free\n/ %llu %llu %llu %llu\n",
 			xw_state->root_size, xw_state->root_free,
 			xw_state->root_inodes, xw_state->root_inodes_free);
 
