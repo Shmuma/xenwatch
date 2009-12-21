@@ -21,7 +21,9 @@ struct xenwatch_state {
 	u32 p_user, p_system, p_wait, p_idle;	/* CPU usage in percents*100			*/
 	u64 mem_total, mem_free;		/* Memory size in bytes				*/
 	u64 mem_buffers, mem_cached;
+	u64 freeswap, totalswap;
 	u64 root_size, root_free, root_inodes, root_inodes_free;
+	u32 uptime;
 } __attribute__ ((packed));
 
 

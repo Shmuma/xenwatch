@@ -50,6 +50,8 @@ static int xw_read_network (char *page, char **start, off_t off, int count, int 
 static int xw_read_cpu (char *page, char **start, off_t off, int count, int *eof, void *data);
 static int xw_read_mem (char *page, char **start, off_t off, int count, int *eof, void *data);
 static int xw_read_df (char *page, char **start, off_t off, int count, int *eof, void *data);
+static int xw_read_swap (char *page, char **start, off_t off, int count, int *eof, void *data);
+static int xw_read_uptime (char *page, char **start, off_t off, int count, int *eof, void *data);
 
 static struct xenwatch_state* map_state (struct xw_domain_info *di);
 static int unmap_state (struct xw_domain_info *di);
@@ -224,6 +226,41 @@ static int xw_read_mem (char *page, char **start, off_t off, int count, int *eof
 }
 
 
+static int xw_read_swap (char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	struct xw_domain_info *di = (struct xw_domain_info *)data;
+	struct xenwatch_state *xw_state;
+	int len = 0;
+
+	xw_state = map_state (di);
+	xw_page_lock (xw_state);
+
+	len += sprintf (page, "total free\n%llu %llu\n",
+			xw_state->totalswap, xw_state->freeswap);
+
+	xw_page_unlock (xw_state);
+	unmap_state (di);
+
+	return proc_calc_metrics (page, start, off, count, eof, len);
+}
+
+
+
+static int xw_read_uptime (char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	struct xw_domain_info *di = (struct xw_domain_info *)data;
+	struct xenwatch_state *xw_state;
+	int len = 0;
+
+	xw_state = map_state (di);
+	xw_page_lock (xw_state);
+	len += sprintf (page, "%u\n", xw_state->uptime);
+	xw_page_unlock (xw_state);
+	unmap_state (di);
+
+	return proc_calc_metrics (page, start, off, count, eof, len);
+}
+
 
 static int xw_read_df (char *page, char **start, off_t off, int count, int *eof, void *data)
 {
@@ -383,6 +420,8 @@ static struct xw_domain_info* create_di (unsigned int domid, unsigned int page_r
 	create_proc_read_entry ("cpu", 0, di->proc_dir, xw_read_cpu, di);
 	create_proc_read_entry ("mem", 0, di->proc_dir, xw_read_mem, di);
 	create_proc_read_entry ("df", 0, di->proc_dir, xw_read_df, di);
+	create_proc_read_entry ("swap", 0, di->proc_dir, xw_read_swap, di);
+	create_proc_read_entry ("uptime", 0, di->proc_dir, xw_read_uptime, di);
 	di->page = alloc_page (GFP_KERNEL);
 	if (!di->page)
 		goto error;
@@ -394,6 +433,8 @@ error:
 	remove_proc_entry ("cpu", di->proc_dir);
 	remove_proc_entry ("mem", di->proc_dir);
 	remove_proc_entry ("df", di->proc_dir);
+	remove_proc_entry ("swap", di->proc_dir);
+	remove_proc_entry ("uptime", di->proc_dir);
 	remove_proc_entry (di->domain_name, xw_dir);
 	kfree (di->domain_name);
 error2:
@@ -409,6 +450,8 @@ static void destroy_di (struct xw_domain_info *di)
 	remove_proc_entry ("cpu", di->proc_dir);
 	remove_proc_entry ("mem", di->proc_dir);
 	remove_proc_entry ("df", di->proc_dir);
+	remove_proc_entry ("swap", di->proc_dir);
+	remove_proc_entry ("uptime", di->proc_dir);
 	remove_proc_entry (di->proc_dir->name, di->proc_dir->parent);
 //	__free_page (di->page);
 	kfree (di->domain_name);

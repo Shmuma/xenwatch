@@ -3,6 +3,7 @@
 #include <linux/module.h>
 #include <linux/mm.h>
 #include <linux/timer.h>
+#include <linux/time.h>
 #include <linux/sched.h>
 #include <linux/netdevice.h>
 #include <linux/if_arp.h>
@@ -14,6 +15,8 @@
 #include <linux/statfs.h>
 #include <linux/genhd.h>
 #include <linux/magic.h>
+#include <linux/swap.h>
+
 
 
 #include <asm/page.h>
@@ -108,6 +111,7 @@ static void xw_update_page (unsigned long data)
 	int i;
 	cputime64_t user, system, wait, idle;
 	struct sysinfo si;
+	struct timespec uptime;
 
 	if (!xw)
 		goto exit;
@@ -163,13 +167,22 @@ static void xw_update_page (unsigned long data)
 
 	/* memory */
 	si_meminfo (&si);
+	si_swapinfo (&si);
 
 	xw->mem_total   = PAGES2BYTES (si.totalram);
 	xw->mem_free    = PAGES2BYTES (si.freeram);
 	xw->mem_buffers = PAGES2BYTES (si.bufferram);
 	xw->mem_cached  = PAGES2BYTES (global_page_state(NR_FILE_PAGES) - si.bufferram);
+	xw->freeswap    = PAGES2BYTES (si.freeswap);
+	xw->totalswap   = PAGES2BYTES (si.totalswap);
 
+	/* / space info */
 	gather_root_data (xw);
+
+	/* uptime */
+        do_posix_clock_monotonic_gettime (&uptime);
+        monotonic_to_bootbased (&uptime);
+	xw->uptime = uptime.tv_sec;
 
 	/* total length of data */
 	xw->len = sizeof (struct xenwatch_state) + index * sizeof (struct xenwatch_state_network);
