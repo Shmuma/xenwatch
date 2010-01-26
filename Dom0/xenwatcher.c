@@ -12,6 +12,7 @@
 
 #include "../DomU/xenwatch.h"
 
+#define DEBUG 0
 
 #define MAJOR_VERSION 0
 #define MINOR_VERSION 4
@@ -147,6 +148,11 @@ static int xw_read_la (char *page, char **start, off_t off, int count, int *eof,
 
 	xw_state = map_state (di);
 	xw_page_lock (xw_state);
+
+#if DEBUG
+	printk (KERN_INFO "LA: %llu, %llu, %llu\n", xw_state->la_1, xw_state->la_5, xw_state->la_15);
+#endif
+
 	len = sprintf (page, "la1 la5 la15\n%llu.%02llu %llu.%02llu %llu.%02llu\n",
 		       LOAD_INT (xw_state->la_1), LOAD_FRAC (xw_state->la_1),
 		       LOAD_INT (xw_state->la_5), LOAD_FRAC (xw_state->la_5),

@@ -17,6 +17,7 @@
 #include <linux/magic.h>
 #include <linux/swap.h>
 
+#define DEBUG 0
 
 
 #include <asm/page.h>
@@ -124,6 +125,10 @@ static void xw_update_page (unsigned long data)
 	xw->la_5  = avenrun[1];
 	xw->la_15 = avenrun[2];
 
+#if DEBUG
+	printk (KERN_INFO "XenWatch: LA: %llu, %llu, %llu\n", xw->la_1, xw->la_5, xw->la_15);
+#endif
+
 	/* iterate over network devices */
 	index = 0;
 	for_each_netdev (&init_net, net_dev) {
@@ -186,6 +191,11 @@ static void xw_update_page (unsigned long data)
 
 	/* total length of data */
 	xw->len = sizeof (struct xenwatch_state) + index * sizeof (struct xenwatch_state_network);
+
+#if DEBUG
+	printk (KERN_INFO "Total data length: %d\n", xw->len);
+#endif
+
 	xw->counter++;
 	xw_page_unlock (xw);
 exit:
