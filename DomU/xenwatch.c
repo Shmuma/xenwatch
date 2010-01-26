@@ -17,7 +17,7 @@
 #include <linux/magic.h>
 #include <linux/swap.h>
 
-#define DEBUG 0
+#define DEBUG 1
 
 
 #include <asm/page.h>

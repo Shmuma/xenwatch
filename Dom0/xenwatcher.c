@@ -12,7 +12,7 @@
 
 #include "../DomU/xenwatch.h"
 
-#define DEBUG 0
+#define DEBUG 1
 
 #define MAJOR_VERSION 0
 #define MINOR_VERSION 4
