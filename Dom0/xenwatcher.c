@@ -15,7 +15,7 @@
 #define DEBUG 0
 
 #define MAJOR_VERSION 0
-#define MINOR_VERSION 4
+#define MINOR_VERSION 5
 
 
 struct xw_domain_info {

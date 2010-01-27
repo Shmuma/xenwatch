@@ -112,8 +112,9 @@ static void xw_update_page (unsigned long data)
 	int i;
 	cputime64_t user, system, wait, idle;
 	struct sysinfo si;
+#if PATCHED_KERNEL
 	struct timespec uptime;
-
+#endif
 	if (!xw)
 		goto exit;
 
@@ -172,8 +173,11 @@ static void xw_update_page (unsigned long data)
 
 	/* memory */
 	si_meminfo (&si);
+#if PATCHED_KERNEL
 	si_swapinfo (&si);
-
+#else
+	si.freeswap = si.totalswap = 0;
+#endif
 	xw->mem_total   = PAGES2BYTES (si.totalram);
 	xw->mem_free    = PAGES2BYTES (si.freeram);
 	xw->mem_buffers = PAGES2BYTES (si.bufferram);
@@ -185,9 +189,13 @@ static void xw_update_page (unsigned long data)
 	gather_root_data (xw);
 
 	/* uptime */
+#if PATCHED_KERNEL
         do_posix_clock_monotonic_gettime (&uptime);
         monotonic_to_bootbased (&uptime);
 	xw->uptime = uptime.tv_sec;
+#else
+	xw->uptime = 0;
+#endif
 
 	/* total length of data */
 	xw->len = sizeof (struct xenwatch_state) + index * sizeof (struct xenwatch_state_network);
