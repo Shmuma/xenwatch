@@ -65,8 +65,11 @@ static LIST_HEAD (domains);
 
 static const char* xw_name = "xenwatcher";
 static const char* xw_version = "xenwatch_version";
+static const char* xw_debug = "debug";
 
 static const char* xs_local_dir = "/local/domain";
+
+static int debug_mode = 0;
 
 DEFINE_TIMER (xw_update_timer, xw_update_tf, 0, 0);
 
@@ -137,6 +140,28 @@ static int xw_read_version (char *page, char **start, off_t off, int count, int 
 	int len;
 	len = sprintf (page, "XenWatcher %d.%d\n", MAJOR_VERSION, MINOR_VERSION);
 	return proc_calc_metrics (page, start, off, count, eof, len);
+}
+
+
+static int xw_read_debug (char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	int len;
+	len = sprintf (page, "%d\n", debug_mode);
+	return proc_calc_metrics (page, start, off, count, eof, len);
+}
+
+
+static int xw_write_debug (struct file *file, const char __user *buffer, unsigned long count, void *data)
+{
+	char buffer[20], *end;
+
+	memset (buffer, 0, sizeof (buffer));
+	if (count > sizeof (buffer)-1)
+		count = sizeof (buffer)-1;
+	if (copy_from_user (buffer, buf, count))
+		return -EFAULT;
+	debug_mode = simple_strtol (buffer, &end, 0);
+	return end-buffer;
 }
 
 
@@ -327,6 +352,8 @@ static void xw_update_domains (struct work_struct *args)
 	LIST_HEAD (doms_private);
 	struct list_head *p, *n;
 
+	if (debug_mode)
+		printk (KERN_INFO "xw_update_comains called\n");
 	buf = kmalloc (128, GFP_KERNEL);
 	if (!buf)
 		return;
@@ -336,6 +363,8 @@ static void xw_update_domains (struct work_struct *args)
 	if (IS_ERR (doms))
 		goto error;
 
+	if (debug_mode)
+		printk (KERN_INFO "We have %d domains, process them\n", c_doms);
 	for (i = 0; i < c_doms; i++) {
 		if (sscanf (doms[i], "%u", &domid) <= 0)
 			continue;
@@ -347,9 +376,14 @@ static void xw_update_domains (struct work_struct *args)
 			continue;
 		}
 
+		if (debug_mode)
+			printk (KERN_INFO "Domain %d has name '%s'\n", dom_id, dom_name);
+
 		sprintf (buf, "%d/device/xenwatch/page_ref", domid);
 		pref = xenbus_read (XBT_NIL, xs_local_dir, buf, &pref_len);
 		if (!IS_ERR (pref)) {
+			if (debug_mode)
+				printk (KERN_INFO "Domain has shared page with ref %s\n", pref);
 			if (sscanf (pref, "%d", &page_ref)) {
 				spin_lock (&domains_lock);
 				di = domain_lookup (domid);
@@ -372,6 +406,10 @@ static void xw_update_domains (struct work_struct *args)
 			}
 			kfree (pref);
 		}
+		else {
+			if (debug_mode)
+				printk (KERN_INFO "Xenwatch module not loaded into this domain, skip it\n");
+		}
 	}
 
 	spin_lock (&domains_lock);
@@ -379,6 +417,8 @@ static void xw_update_domains (struct work_struct *args)
 		/* iterate over all remaining domains in list and remove their /proc entries */
 		list_for_each_safe (p, n,  &domains) {
 			di = list_entry (p, struct xw_domain_info, list);
+			if (debug_mode)
+				printk (KERN_INFO "Wipe domain %d (%s)\n", di->domain_id, di->domain_name);
 			list_del (p);
 			destroy_di (di);
 		}
@@ -467,6 +507,8 @@ static void destroy_di (struct xw_domain_info *di)
 
 static int __init xw_init (void)
 {
+	struct proc_dist_entry *entry;
+
 	/* register /proc/xenwatcher/data entry */
 	xw_dir = proc_mkdir (xw_name, NULL);
 	if (!xw_dir) {
@@ -475,6 +517,8 @@ static int __init xw_init (void)
 	}
 
 	create_proc_read_entry (xw_version, 0, xw_dir, xw_read_version, NULL);
+	entry = create_proc_read_entry (xw_debug, 0, xw_dir, xw_read_debug, NULL);
+	entry->write_proc = xw_write_debug;
 
 	recharge_timer ();
 
@@ -494,6 +538,7 @@ static void __exit xw_exit (void)
 	flush_scheduled_work ();
 
 	remove_proc_entry (xw_version, xw_dir);
+	remove_proc_entry (xw_debug, xw_dir);
 
 	/* remove all domain entries */
 	list_for_each_safe (p, n, &domains) {
