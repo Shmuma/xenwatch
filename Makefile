@@ -7,7 +7,7 @@ domu: DomU/xenwatch.ko
 dom0: Dom0/xenwatcher.ko
 
 DomU/xenwatch.ko: DomU/xenwatch.c DomU/xenwatch.h
-	(cd DomU && PATCHED_KERNEL=$(patched_kernel) ./b.sh)
+	(cd DomU && ./b.sh)
 
 Dom0/xenwatcher.ko: Dom0/xenwatcher.c DomU/xenwatch.h
 	(cd Dom0 && ./b.sh)

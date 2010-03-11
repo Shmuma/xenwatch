@@ -18,7 +18,7 @@
 #include <linux/swap.h>
 
 #define DEBUG 0
-
+#define PATCHED_KERNEL 1
 
 #include <asm/page.h>
 
