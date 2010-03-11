@@ -6,6 +6,7 @@
 #include <linux/workqueue.h>
 #include <linux/spinlock.h>
 #include <linux/mm.h>
+#include <asm/uaccess.h>
 
 #include <xen/xenbus.h>
 #include <xen/interface/grant_table.h>
@@ -153,15 +154,15 @@ static int xw_read_debug (char *page, char **start, off_t off, int count, int *e
 
 static int xw_write_debug (struct file *file, const char __user *buffer, unsigned long count, void *data)
 {
-	char buffer[20], *end;
+	char buf[20], *end;
 
-	memset (buffer, 0, sizeof (buffer));
-	if (count > sizeof (buffer)-1)
-		count = sizeof (buffer)-1;
-	if (copy_from_user (buffer, buf, count))
+	memset (buf, 0, sizeof (buf));
+	if (count > sizeof (buf)-1)
+		count = sizeof (buf)-1;
+	if (copy_from_user (buf, buffer, count))
 		return -EFAULT;
-	debug_mode = simple_strtol (buffer, &end, 0);
-	return end-buffer;
+	debug_mode = simple_strtol (buf, &end, 0);
+	return end-buf;
 }
 
 
@@ -377,7 +378,7 @@ static void xw_update_domains (struct work_struct *args)
 		}
 
 		if (debug_mode)
-			printk (KERN_INFO "Domain %d has name '%s'\n", dom_id, dom_name);
+			printk (KERN_INFO "Domain %d has name '%s'\n", domid, dom_name);
 
 		sprintf (buf, "%d/device/xenwatch/page_ref", domid);
 		pref = xenbus_read (XBT_NIL, xs_local_dir, buf, &pref_len);
@@ -507,7 +508,7 @@ static void destroy_di (struct xw_domain_info *di)
 
 static int __init xw_init (void)
 {
-	struct proc_dist_entry *entry;
+	struct proc_dir_entry *entry;
 
 	/* register /proc/xenwatcher/data entry */
 	xw_dir = proc_mkdir (xw_name, NULL);
