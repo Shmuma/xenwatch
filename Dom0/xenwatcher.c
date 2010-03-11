@@ -70,7 +70,7 @@ static const char* xw_debug = "debug";
 
 static const char* xs_local_dir = "/local/domain";
 
-static int debug_mode = 0;
+static int debug_mode = 1;
 
 DEFINE_TIMER (xw_update_timer, xw_update_tf, 0, 0);
 
