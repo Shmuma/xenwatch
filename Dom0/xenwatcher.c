@@ -81,6 +81,7 @@ DECLARE_WORK (xw_update_worker, &xw_update_domains);
 static struct xenwatch_state* map_state (struct xw_domain_info *di)
 {
 	struct gnttab_map_grant_ref op;
+	struct xenwatch_state* p;
 
 	/* Map shared page */
 	memset (&op, 0, sizeof (op));
@@ -97,7 +98,12 @@ static struct xenwatch_state* map_state (struct xw_domain_info *di)
 	di->grant_handle = op.handle;
 	di->page_bus_addr = op.dev_bus_addr;
 
-	return (struct xenwatch_state *)page_address (di->page);
+	res = (struct xenwatch_state *)page_address (di->page);
+
+	if (debug)
+		printk (KERN_INFO "map_state: %x, %p\n", op.handle, res);
+
+	return res;
 }
 
 
