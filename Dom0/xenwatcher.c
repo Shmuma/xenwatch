@@ -179,6 +179,8 @@ static int xw_read_la (char *page, char **start, off_t off, int count, int *eof,
 	int len;
 
 	xw_state = map_state (di);
+	if (!xw_state)
+		return 0;
 	xw_page_lock (xw_state);
 
 #if DEBUG
@@ -204,6 +206,8 @@ static int xw_read_network (char *page, char **start, off_t off, int count, int 
 	int len = 0, i;
 
 	xw_state = map_state (di);
+	if (!xw_state)
+		return 0;
 	xw_page_lock (xw_state);
 
 	len += sprintf (page, "interface rx_bytes tx_bytes rx_packets tx_packets dropped error\n");
@@ -229,6 +233,8 @@ static int xw_read_cpu (char *page, char **start, off_t off, int count, int *eof
 	int len = 0;
 
 	xw_state = map_state (di);
+	if (!xw_state)
+		return 0;
 	xw_page_lock (xw_state);
 
 	len += sprintf (page, "user system wait idle\n%u.%02u %u.%02u %u.%02u %u.%02u\n",
@@ -251,6 +257,8 @@ static int xw_read_mem (char *page, char **start, off_t off, int count, int *eof
 	int len = 0;
 
 	xw_state = map_state (di);
+	if (!xw_state)
+		return 0;
 	xw_page_lock (xw_state);
 
 	len += sprintf (page, "total free buffers cached\n%llu %llu %llu %llu\n",
@@ -271,6 +279,8 @@ static int xw_read_swap (char *page, char **start, off_t off, int count, int *eo
 	int len = 0;
 
 	xw_state = map_state (di);
+	if (!xw_state)
+		return 0;
 	xw_page_lock (xw_state);
 
 	len += sprintf (page, "total free\n%llu %llu\n",
@@ -291,6 +301,8 @@ static int xw_read_uptime (char *page, char **start, off_t off, int count, int *
 	int len = 0;
 
 	xw_state = map_state (di);
+	if (!xw_state)
+		return 0;
 	xw_page_lock (xw_state);
 	len += sprintf (page, "%u\n", xw_state->uptime);
 	xw_page_unlock (xw_state);
@@ -307,6 +319,8 @@ static int xw_read_df (char *page, char **start, off_t off, int count, int *eof,
 	int len = 0;
 
 	xw_state = map_state (di);
+	if (!xw_state)
+		return 0;
 	xw_page_lock (xw_state);
 
 	len += sprintf (page, "mount size free inodes inodes_free\n/ %llu %llu %llu %llu\n",
