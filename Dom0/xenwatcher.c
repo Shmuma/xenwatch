@@ -70,8 +70,6 @@ static const char* xw_debug = "debug";
 
 static const char* xs_local_dir = "/local/domain";
 
-static int debug_mode = 0;
-
 DEFINE_TIMER (xw_update_timer, xw_update_tf, 0, 0);
 
 DECLARE_WORK (xw_update_worker, &xw_update_domains);
@@ -100,9 +98,9 @@ static struct xenwatch_state* map_state (struct xw_domain_info *di)
 
 	res = (struct xenwatch_state *)page_address (di->page);
 
-	if (debug_mode)
+#if DEBUG
 		printk (KERN_INFO "map_state: %x, %p\n", op.handle, res);
-
+#endif
 	return res;
 }
 
@@ -147,28 +145,6 @@ static int xw_read_version (char *page, char **start, off_t off, int count, int 
 	int len;
 	len = sprintf (page, "XenWatcher %d.%d\n", MAJOR_VERSION, MINOR_VERSION);
 	return proc_calc_metrics (page, start, off, count, eof, len);
-}
-
-
-static int xw_read_debug (char *page, char **start, off_t off, int count, int *eof, void *data)
-{
-	int len;
-	len = sprintf (page, "%d\n", debug_mode);
-	return proc_calc_metrics (page, start, off, count, eof, len);
-}
-
-
-static int xw_write_debug (struct file *file, const char __user *buffer, unsigned long count, void *data)
-{
-	char buf[20], *end;
-
-	memset (buf, 0, sizeof (buf));
-	if (count > sizeof (buf)-1)
-		count = sizeof (buf)-1;
-	if (copy_from_user (buf, buffer, count))
-		return -EFAULT;
-	debug_mode = simple_strtol (buf, &end, 0);
-	return end-buf;
 }
 
 
@@ -373,19 +349,20 @@ static void xw_update_domains (struct work_struct *args)
 	LIST_HEAD (doms_private);
 	struct list_head *p, *n;
 
-	if (debug_mode)
-		printk (KERN_INFO "xw_update_comains called\n");
+#if DEBUG
+	printk (KERN_INFO "xw_update_domains called\n");
+#endif
 	buf = kmalloc (128, GFP_KERNEL);
 	if (!buf)
 		return;
-
 	/* iterate over all domains in XS */
 	doms = xenbus_directory (XBT_NIL, xs_local_dir, "", &c_doms);
 	if (IS_ERR (doms))
 		goto error;
 
-	if (debug_mode)
-		printk (KERN_INFO "We have %d domains, process them\n", c_doms);
+#if DEBUG
+	printk (KERN_INFO "We have %d domains, process them\n", c_doms);
+#endif
 	for (i = 0; i < c_doms; i++) {
 		if (sscanf (doms[i], "%u", &domid) <= 0)
 			continue;
@@ -397,14 +374,15 @@ static void xw_update_domains (struct work_struct *args)
 			continue;
 		}
 
-		if (debug_mode)
-			printk (KERN_INFO "Domain %d has name '%s'\n", domid, dom_name);
-
+#if DEBUG
+		printk (KERN_INFO "Domain %d has name '%s'\n", domid, dom_name);
+#endif
 		sprintf (buf, "%d/device/xenwatch/page_ref", domid);
 		pref = xenbus_read (XBT_NIL, xs_local_dir, buf, &pref_len);
 		if (!IS_ERR (pref)) {
-			if (debug_mode)
-				printk (KERN_INFO "Domain has shared page with ref %s\n", pref);
+#if DEBUG
+			printk (KERN_INFO "Domain has shared page with ref %s\n", pref);
+#endif
 			if (sscanf (pref, "%d", &page_ref)) {
 				spin_lock (&domains_lock);
 				di = domain_lookup (domid);
@@ -428,8 +406,9 @@ static void xw_update_domains (struct work_struct *args)
 			kfree (pref);
 		}
 		else {
-			if (debug_mode)
-				printk (KERN_INFO "Xenwatch module not loaded into this domain, skip it\n");
+#if DEBUG
+			printk (KERN_INFO "Xenwatch module not loaded into this domain, skip it\n");
+#endif
 		}
 	}
 
@@ -438,8 +417,9 @@ static void xw_update_domains (struct work_struct *args)
 		/* iterate over all remaining domains in list and remove their /proc entries */
 		list_for_each_safe (p, n,  &domains) {
 			di = list_entry (p, struct xw_domain_info, list);
-			if (debug_mode)
-				printk (KERN_INFO "Wipe domain %d (%s)\n", di->domain_id, di->domain_name);
+#if DEBUG
+			printk (KERN_INFO "Wipe domain %d (%s)\n", di->domain_id, di->domain_name);
+#endif
 			list_del (p);
 			destroy_di (di);
 		}
@@ -538,8 +518,6 @@ static int __init xw_init (void)
 	}
 
 	create_proc_read_entry (xw_version, 0, xw_dir, xw_read_version, NULL);
-	entry = create_proc_read_entry (xw_debug, 0, xw_dir, xw_read_debug, NULL);
-	entry->write_proc = xw_write_debug;
 
 	recharge_timer ();
 
@@ -559,7 +537,6 @@ static void __exit xw_exit (void)
 	flush_scheduled_work ();
 
 	remove_proc_entry (xw_version, xw_dir);
-	remove_proc_entry (xw_debug, xw_dir);
 
 	/* remove all domain entries */
 	list_for_each_safe (p, n, &domains) {
