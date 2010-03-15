@@ -6,6 +6,7 @@
 #include <linux/workqueue.h>
 #include <linux/spinlock.h>
 #include <linux/mm.h>
+#include <linux/string.h>
 #include <asm/uaccess.h>
 
 #include <xen/xenbus.h>
@@ -16,7 +17,7 @@
 #define DEBUG 0
 
 #define MAJOR_VERSION 0
-#define MINOR_VERSION 6
+#define MINOR_VERSION 7
 
 
 struct xw_domain_info {
@@ -26,9 +27,10 @@ struct xw_domain_info {
 	int page_ref;
 	struct proc_dir_entry *proc_dir;
 	struct page *page;
-	grant_handle_t grant_handle; /* valid only when page mapped */
-	uint64_t page_bus_addr;
 };
+
+
+static struct page *gw_page;
 
 
 /* Domains update interval */
@@ -55,9 +57,6 @@ static int xw_read_df (char *page, char **start, off_t off, int count, int *eof,
 static int xw_read_swap (char *page, char **start, off_t off, int count, int *eof, void *data);
 static int xw_read_uptime (char *page, char **start, off_t off, int count, int *eof, void *data);
 
-static struct xenwatch_state* map_state (struct xw_domain_info *di);
-static int unmap_state (struct xw_domain_info *di);
-
 
 static struct proc_dir_entry *xw_dir;
 
@@ -66,7 +65,6 @@ static LIST_HEAD (domains);
 
 static const char* xw_name = "xenwatcher";
 static const char* xw_version = "xenwatch_version";
-static const char* xw_debug = "debug";
 
 static const char* xs_local_dir = "/local/domain";
 
@@ -75,54 +73,37 @@ DEFINE_TIMER (xw_update_timer, xw_update_tf, 0, 0);
 DECLARE_WORK (xw_update_worker, &xw_update_domains);
 
 
-
-static struct xenwatch_state* map_state (struct xw_domain_info *di)
+static void update_di_data (struct xw_domain_info *di)
 {
 	struct gnttab_map_grant_ref op;
-	struct xenwatch_state* res;
+	struct gnttab_unmap_grant_ref u_op;
 
 	/* Map shared page */
 	memset (&op, 0, sizeof (op));
-	op.host_addr = (unsigned long)page_address (di->page);
+	op.host_addr = (unsigned long)page_address (gw_page);
 	op.flags = GNTMAP_host_map;
 	op.ref = di->page_ref;
 	op.dom = di->domain_id;
 
 	if (HYPERVISOR_grant_table_op (GNTTABOP_map_grant_ref, &op, 1)) {
 		printk (KERN_ERR "%s: failed to map shared page from domain %u, ref %u", xw_name, di->domain_id, di->page_ref);
-		return NULL;
+		return;
 	}
 
-	di->grant_handle = op.handle;
-	di->page_bus_addr = op.dev_bus_addr;
+	/* Page mapped, copy it's data into di->page */
+	memcpy (page_address (di->page), page_address (gw_page), 1 << PAGE_SHIFT);
 
-	res = (struct xenwatch_state *)page_address (di->page);
-
-#if DEBUG
-		printk (KERN_INFO "map_state: %x, %p\n", op.handle, res);
-#endif
-	return res;
-}
-
-
-static int unmap_state (struct xw_domain_info *di)
-{
-	struct gnttab_unmap_grant_ref u_op;
-
-	/* unmap page */
+	/* Unmap page */
 	memset (&u_op, 0, sizeof (u_op));
-	u_op.host_addr = (unsigned long)page_address (di->page);
-	u_op.dev_bus_addr = di->page_bus_addr;
-	u_op.handle = di->grant_handle;
+	u_op.host_addr = op.host_addr;
+	u_op.dev_bus_addr = op.dev_bus_addr;
+	u_op.handle = op.handle;
 
 	if (HYPERVISOR_grant_table_op (GNTTABOP_unmap_grant_ref, &u_op, 1)) {
 		printk (KERN_ERR "%s: failed to unmap shared page for domain %u, ref %u\n", xw_name, di->domain_id, di->page_ref);
-		return 0;
+		return;
 	}
-
-	return 1;
 }
-
 
 
 static int proc_calc_metrics (char *page, char **start, off_t off,
@@ -151,13 +132,8 @@ static int xw_read_version (char *page, char **start, off_t off, int count, int 
 static int xw_read_la (char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	struct xw_domain_info *di = (struct xw_domain_info *)data;
-	struct xenwatch_state *xw_state;
+	struct xenwatch_state *xw_state = (struct xenwatch_state*)page_address (di->page);
 	int len;
-
-	xw_state = map_state (di);
-	if (!xw_state)
-		return 0;
-	xw_page_lock (xw_state);
 
 #if DEBUG
 	printk (KERN_INFO "LA: %llu, %llu, %llu\n", xw_state->la_1, xw_state->la_5, xw_state->la_15);
@@ -167,8 +143,6 @@ static int xw_read_la (char *page, char **start, off_t off, int count, int *eof,
 		       LOAD_INT (xw_state->la_1), LOAD_FRAC (xw_state->la_1),
 		       LOAD_INT (xw_state->la_5), LOAD_FRAC (xw_state->la_5),
 		       LOAD_INT (xw_state->la_15), LOAD_FRAC (xw_state->la_15));
-	xw_page_unlock (xw_state);
-	unmap_state (di);
 
 	return proc_calc_metrics (page, start, off, count, eof, len);
 }
@@ -177,14 +151,9 @@ static int xw_read_la (char *page, char **start, off_t off, int count, int *eof,
 static int xw_read_network (char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	struct xw_domain_info *di = (struct xw_domain_info *)data;
-	struct xenwatch_state *xw_state;
+	struct xenwatch_state *xw_state = (struct xenwatch_state*)page_address (di->page);
 	struct xenwatch_state_network *xw_net;
 	int len = 0, i;
-
-	xw_state = map_state (di);
-	if (!xw_state)
-		return 0;
-	xw_page_lock (xw_state);
 
 	len += sprintf (page, "interface rx_bytes tx_bytes rx_packets tx_packets dropped error\n");
 	xw_net = (struct xenwatch_state_network*)((char*)xw_state + sizeof (*xw_state));
@@ -195,9 +164,6 @@ static int xw_read_network (char *page, char **start, off_t off, int count, int 
 				xw_net->rx_packets, xw_net->tx_packets,
 				xw_net->dropped_packets, xw_net->error_packets);
 
-	xw_page_unlock (xw_state);
-	unmap_state (di);
-
 	return proc_calc_metrics (page, start, off, count, eof, len);
 }
 
@@ -205,22 +171,14 @@ static int xw_read_network (char *page, char **start, off_t off, int count, int 
 static int xw_read_cpu (char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	struct xw_domain_info *di = (struct xw_domain_info *)data;
-	struct xenwatch_state *xw_state;
+	struct xenwatch_state *xw_state = (struct xenwatch_state*)page_address (di->page);
 	int len = 0;
-
-	xw_state = map_state (di);
-	if (!xw_state)
-		return 0;
-	xw_page_lock (xw_state);
 
 	len += sprintf (page, "user system wait idle\n%u.%02u %u.%02u %u.%02u %u.%02u\n",
 			PERCENT_INT(xw_state->p_user),   PERCENT_FRAC(xw_state->p_user),
 			PERCENT_INT(xw_state->p_system), PERCENT_FRAC(xw_state->p_system),
 			PERCENT_INT(xw_state->p_wait),   PERCENT_FRAC(xw_state->p_wait),
 			PERCENT_INT(xw_state->p_idle),   PERCENT_FRAC(xw_state->p_idle));
-
-	xw_page_unlock (xw_state);
-	unmap_state (di);
 
 	return proc_calc_metrics (page, start, off, count, eof, len);
 }
@@ -229,20 +187,12 @@ static int xw_read_cpu (char *page, char **start, off_t off, int count, int *eof
 static int xw_read_mem (char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	struct xw_domain_info *di = (struct xw_domain_info *)data;
-	struct xenwatch_state *xw_state;
+	struct xenwatch_state *xw_state = (struct xenwatch_state*)page_address (di->page);
 	int len = 0;
-
-	xw_state = map_state (di);
-	if (!xw_state)
-		return 0;
-	xw_page_lock (xw_state);
 
 	len += sprintf (page, "total free buffers cached\n%llu %llu %llu %llu\n",
 			xw_state->mem_total, xw_state->mem_free,
 			xw_state->mem_buffers, xw_state->mem_cached);
-
-	xw_page_unlock (xw_state);
-	unmap_state (di);
 
 	return proc_calc_metrics (page, start, off, count, eof, len);
 }
@@ -251,19 +201,11 @@ static int xw_read_mem (char *page, char **start, off_t off, int count, int *eof
 static int xw_read_swap (char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	struct xw_domain_info *di = (struct xw_domain_info *)data;
-	struct xenwatch_state *xw_state;
+	struct xenwatch_state *xw_state = (struct xenwatch_state*)page_address (di->page);
 	int len = 0;
-
-	xw_state = map_state (di);
-	if (!xw_state)
-		return 0;
-	xw_page_lock (xw_state);
 
 	len += sprintf (page, "total free\n%llu %llu\n",
 			xw_state->totalswap, xw_state->freeswap);
-
-	xw_page_unlock (xw_state);
-	unmap_state (di);
 
 	return proc_calc_metrics (page, start, off, count, eof, len);
 }
@@ -273,16 +215,10 @@ static int xw_read_swap (char *page, char **start, off_t off, int count, int *eo
 static int xw_read_uptime (char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	struct xw_domain_info *di = (struct xw_domain_info *)data;
-	struct xenwatch_state *xw_state;
+	struct xenwatch_state *xw_state = (struct xenwatch_state*)page_address (di->page);
 	int len = 0;
 
-	xw_state = map_state (di);
-	if (!xw_state)
-		return 0;
-	xw_page_lock (xw_state);
 	len += sprintf (page, "%u\n", xw_state->uptime);
-	xw_page_unlock (xw_state);
-	unmap_state (di);
 
 	return proc_calc_metrics (page, start, off, count, eof, len);
 }
@@ -291,20 +227,12 @@ static int xw_read_uptime (char *page, char **start, off_t off, int count, int *
 static int xw_read_df (char *page, char **start, off_t off, int count, int *eof, void *data)
 {
 	struct xw_domain_info *di = (struct xw_domain_info *)data;
-	struct xenwatch_state *xw_state;
+	struct xenwatch_state *xw_state = (struct xenwatch_state*)page_address (di->page);
 	int len = 0;
-
-	xw_state = map_state (di);
-	if (!xw_state)
-		return 0;
-	xw_page_lock (xw_state);
 
 	len += sprintf (page, "mount size free inodes inodes_free\n/ %llu %llu %llu %llu\n",
 			xw_state->root_size, xw_state->root_free,
 			xw_state->root_inodes, xw_state->root_inodes_free);
-
-	xw_page_unlock (xw_state);
-	unmap_state (di);
 
 	return proc_calc_metrics (page, start, off, count, eof, len);
 }
@@ -398,9 +326,12 @@ static void xw_update_domains (struct work_struct *args)
 					list_del_init (&di->list);
 				}
 
-				/* add domain_info into own private list to find all */
-				if (di)
+				/* add domain_info into own private list to find all actual domains
+				 * Here we also copy data from doman's shared page into allocated page of di */
+				if (di) {
 					list_add (&di->list, &doms_private);
+					update_di_data (di);
+				}
 				spin_unlock (&domains_lock);
 			}
 			kfree (pref);
@@ -469,7 +400,7 @@ static struct xw_domain_info* create_di (unsigned int domid, unsigned int page_r
 	create_proc_read_entry ("df", 0, di->proc_dir, xw_read_df, di);
 	create_proc_read_entry ("swap", 0, di->proc_dir, xw_read_swap, di);
 	create_proc_read_entry ("uptime", 0, di->proc_dir, xw_read_uptime, di);
-	di->page = alloc_page (GFP_KERNEL);
+	di->page = alloc_page (GFP_KERNEL || __GFP_ZERO);
 	if (!di->page)
 		goto error;
 	return di;
@@ -489,7 +420,6 @@ error2:
 	return NULL;
 }
 
-
 static void destroy_di (struct xw_domain_info *di)
 {
 	remove_proc_entry ("la", di->proc_dir);
@@ -500,7 +430,7 @@ static void destroy_di (struct xw_domain_info *di)
 	remove_proc_entry ("swap", di->proc_dir);
 	remove_proc_entry ("uptime", di->proc_dir);
 	remove_proc_entry (di->proc_dir->name, di->proc_dir->parent);
-//	__free_page (di->page);
+	__free_page (di->page);
 	kfree (di->domain_name);
 	kfree (di);
 }
@@ -508,7 +438,11 @@ static void destroy_di (struct xw_domain_info *di)
 
 static int __init xw_init (void)
 {
-	struct proc_dir_entry *entry;
+	gw_page = alloc_page (GFP_KERNEL);
+	if (!gw_page) {
+		printk (KERN_WARNING "%s: failed to allocate gw page\n", xw_name);
+		return -EINVAL;
+	}
 
 	/* register /proc/xenwatcher/data entry */
 	xw_dir = proc_mkdir (xw_name, NULL);
@@ -546,7 +480,6 @@ static void __exit xw_exit (void)
 	}
 	remove_proc_entry (xw_name, NULL);
 }
-
 
 
 module_init (xw_init);
