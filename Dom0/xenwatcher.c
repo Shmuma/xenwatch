@@ -56,6 +56,7 @@ static int xw_read_mem (char *page, char **start, off_t off, int count, int *eof
 static int xw_read_df (char *page, char **start, off_t off, int count, int *eof, void *data);
 static int xw_read_swap (char *page, char **start, off_t off, int count, int *eof, void *data);
 static int xw_read_uptime (char *page, char **start, off_t off, int count, int *eof, void *data);
+static int xw_read_raw (char *page, char **start, off_t off, int count, int *eof, void *data);
 
 
 static struct proc_dir_entry *xw_dir;
@@ -222,6 +223,24 @@ static int xw_read_uptime (char *page, char **start, off_t off, int count, int *
 
 	return proc_calc_metrics (page, start, off, count, eof, len);
 }
+
+
+
+static int xw_read_raw (char *page, char **start, off_t off, int count, int *eof, void *data)
+{
+	struct xw_domain_info *di = (struct xw_domain_info *)data;
+	unsigned char *xw_state = (unsigned char*)page_address (di->page);
+	int len = 0, i, j;
+
+	for (i = 0; i < 16; i++) {
+		for (j = 0; j < 16; j++)
+			len += sprintf (page+len, "%02x ", (unsigned int)xw_state[j+i*16]);
+		len += sprintf (page+len, "\n");
+	}
+
+	return proc_calc_metrics (page, start, off, count, eof, len);
+}
+
 
 
 static int xw_read_df (char *page, char **start, off_t off, int count, int *eof, void *data)
@@ -400,6 +419,7 @@ static struct xw_domain_info* create_di (unsigned int domid, unsigned int page_r
 	create_proc_read_entry ("df", 0, di->proc_dir, xw_read_df, di);
 	create_proc_read_entry ("swap", 0, di->proc_dir, xw_read_swap, di);
 	create_proc_read_entry ("uptime", 0, di->proc_dir, xw_read_uptime, di);
+	create_proc_read_entry ("raw", 0, di->proc_dir, xw_read_raw, di);
 	di->page = alloc_page (GFP_KERNEL || __GFP_ZERO);
 	if (!di->page)
 		goto error;
@@ -413,6 +433,7 @@ error:
 	remove_proc_entry ("df", di->proc_dir);
 	remove_proc_entry ("swap", di->proc_dir);
 	remove_proc_entry ("uptime", di->proc_dir);
+	remove_proc_entry ("raw", di->proc_dir);
 	remove_proc_entry (di->domain_name, xw_dir);
 	kfree (di->domain_name);
 error2:
@@ -429,6 +450,7 @@ static void destroy_di (struct xw_domain_info *di)
 	remove_proc_entry ("df", di->proc_dir);
 	remove_proc_entry ("swap", di->proc_dir);
 	remove_proc_entry ("uptime", di->proc_dir);
+	remove_proc_entry ("raw", di->proc_dir);
 	remove_proc_entry (di->proc_dir->name, di->proc_dir->parent);
 	__free_page (di->page);
 	kfree (di->domain_name);
