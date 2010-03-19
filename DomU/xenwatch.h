@@ -7,7 +7,6 @@
  * The layout of data in shared info page is follows:
  * 1. struct xenwatch_state -- contains generic information about state and amount of variable-size objects
  * 2. array of struct xenwatch_state_net -- information about network interfaces
- * 3. array of struct xenwatch_state_block -- information about disks
  */
 
 struct xenwatch_state {

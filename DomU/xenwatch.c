@@ -63,6 +63,7 @@ static void init_page (void)
 
 	xw->len = sizeof (struct xenwatch_state);
 	atomic_set (&xw->lock, 0);
+	xw->counter = 0;
 }
 
 
@@ -85,15 +86,20 @@ static void gather_root_data (struct xenwatch_state *xw)
 	struct nameidata nd;
 	struct kstatfs kstat;
 
+	xw->root_size = 0;
+	xw->root_free = 0;
+	xw->root_inodes = 0;
+	xw->root_inodes_free = 0;
+
 	if (path_lookup ("/", 0, &nd))
 		printk (KERN_INFO "xenwatch: Root lookup error\n");
 	else {
-		nd.path.dentry->d_sb->s_op->statfs (nd.path.dentry, &kstat);
-
-		xw->root_size = kstat.f_blocks * kstat.f_bsize;
-		xw->root_free = kstat.f_bfree * kstat.f_bsize;
-		xw->root_inodes = kstat.f_files;
-		xw->root_inodes_free = kstat.f_ffree;
+		if (!nd.path.dentry->d_sb->s_op->statfs (nd.path.dentry, &kstat)) {
+			xw->root_size = (u64)kstat.f_blocks * kstat.f_bsize;
+			xw->root_free = (u64)kstat.f_bfree * kstat.f_bsize;
+			xw->root_inodes = (u64)kstat.f_files;
+			xw->root_inodes_free = (u64)kstat.f_ffree;
+		}
 
 		path_put (&nd.path);
 	}
@@ -203,7 +209,6 @@ static void xw_update_page (unsigned long data)
 #if DEBUG
 	printk (KERN_INFO "Total data length: %d\n", xw->len);
 #endif
-
 	xw->counter++;
 	xw_page_unlock (xw);
 exit:
