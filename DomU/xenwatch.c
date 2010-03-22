@@ -62,7 +62,6 @@ static void init_page (void)
 	struct xenwatch_state *xw = page_address (shared_page);
 
 	xw->len = sizeof (struct xenwatch_state);
-	atomic_set (&xw->lock, 0);
 	xw->counter = 0;
 }
 
@@ -111,9 +110,9 @@ static void xw_update_page (unsigned long data)
 {
 	struct xenwatch_state *xw = page_address (shared_page);
 	struct net_device *net_dev;
-	struct xenwatch_state_network *xw_net = (struct xenwatch_state_network*)((char*)xw + sizeof (struct xenwatch_state));
+	struct xenwatch_state_network *xw_net;
 	struct net_device_stats *stats;
-	u8 index;
+	u32 index;
 	u32 old_ts;
 	int i;
 	cputime64_t user, system, wait, idle;
@@ -124,7 +123,6 @@ static void xw_update_page (unsigned long data)
 	if (!xw)
 		goto exit;
 
-	xw_page_lock (xw);
 	old_ts = xw->ts_ms;
 
 	xw->ts_ms = jiffies_to_msecs (jiffies);
@@ -140,13 +138,14 @@ static void xw_update_page (unsigned long data)
 	index = 0;
 	for_each_netdev (&init_net, net_dev) {
 		if (net_dev->type == ARPHRD_ETHER) {
+			xw_net = get_network_info (xw, index);
 			stats = net_dev->get_stats (net_dev);
-			xw_net[index].rx_bytes = stats->rx_bytes;
-			xw_net[index].tx_bytes = stats->tx_bytes;
-			xw_net[index].rx_packets = stats->rx_packets;
-			xw_net[index].tx_packets = stats->tx_packets;
-			xw_net[index].dropped_packets = stats->rx_dropped + stats->tx_dropped;
-			xw_net[index].error_packets = stats->rx_errors + stats->tx_errors;
+			xw_net->rx_bytes = stats->rx_bytes;
+			xw_net->tx_bytes = stats->tx_bytes;
+			xw_net->rx_packets = stats->rx_packets;
+			xw_net->tx_packets = stats->tx_packets;
+			xw_net->dropped_packets = stats->rx_dropped + stats->tx_dropped;
+			xw_net->error_packets = stats->rx_errors + stats->tx_errors;
 			index++;
 		}
 	}
@@ -210,7 +209,6 @@ static void xw_update_page (unsigned long data)
 	printk (KERN_INFO "Total data length: %d\n", xw->len);
 #endif
 	xw->counter++;
-	xw_page_unlock (xw);
 exit:
 	recharge_timer ();
 }

@@ -11,18 +11,17 @@
 
 struct xenwatch_state {
 	u32 len;				/* Length of structure				*/
-	atomic_t lock;				/* Page protection (1 if used, 0 if free)	*/
 	u64 counter;				/* some measurements are not performed every 1s */
 	u32 ts_ms;				/* timestamp in miliseconds			*/
 	u64 la_1, la_5, la_15;			/* Load average fixed-point values		*/
-	u8 network_interfaces;			/* count of network interfaces			*/
+	u32 uptime;
+	u32 network_interfaces;			/* count of network interfaces			*/
 	u32 user, system, wait, idle;		/* previous times in miliseconds		*/
 	u32 p_user, p_system, p_wait, p_idle;	/* CPU usage in percents*100			*/
 	u64 mem_total, mem_free;		/* Memory size in bytes				*/
 	u64 mem_buffers, mem_cached;
 	u64 freeswap, totalswap;
 	u64 root_size, root_free, root_inodes, root_inodes_free;
-	u32 uptime;
 } __attribute__ ((packed));
 
 
@@ -31,15 +30,13 @@ struct xenwatch_state_network {
 } __attribute__ ((packed));
 
 
-inline void xw_page_lock (struct xenwatch_state *xw)
-{
-	while (atomic_add_unless (&xw->lock, 1, 1));
-}
 
-
-inline void xw_page_unlock (struct xenwatch_state *xw)
+struct xenwatch_state_network*
+get_network_info (struct xenwatch_state *xw, int index)
 {
-	atomic_dec (&xw->lock);
+	int ofs = sizeof (struct xenwatch_state) + sizeof (struct xenwatch_state_network) * index;
+
+	return (struct xenwatch_state_network*)(((char*)xw) + ofs);
 }
 
 

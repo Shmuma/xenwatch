@@ -16,8 +16,8 @@
 
 #define DEBUG 0
 
-#define MAJOR_VERSION 0
-#define MINOR_VERSION 8
+#define MAJOR_VERSION 1
+#define MINOR_VERSION 0
 
 
 struct xw_domain_info {
@@ -157,13 +157,14 @@ static int xw_read_network (char *page, char **start, off_t off, int count, int 
 	int len = 0, i;
 
 	len += sprintf (page, "interface rx_bytes tx_bytes rx_packets tx_packets dropped error\n");
-	xw_net = (struct xenwatch_state_network*)((char*)xw_state + sizeof (*xw_state));
 
-	for (i = 0; i < xw_state->network_interfaces; i++)
+	for (i = 0; i < xw_state->network_interfaces; i++) {
+		xw_net = get_network_info (xw_state, i);
 		len += sprintf (page+len, "eth%d %llu %llu %llu %llu %llu %llu\n", i,
 				xw_net->rx_bytes, xw_net->tx_bytes,
 				xw_net->rx_packets, xw_net->tx_packets,
 				xw_net->dropped_packets, xw_net->error_packets);
+	}
 
 	return proc_calc_metrics (page, start, off, count, eof, len);
 }
